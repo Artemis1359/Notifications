@@ -1,0 +1,66 @@
+version: '3'
+
+volumes:
+  notifications_pg_data:
+  static_volume:
+  media_volume:
+
+services:
+  db:
+    image: postgres:latest
+    platform: linux/amd64
+    env_file: .env
+    ports:
+      - "5432:5432"
+    volumes:
+      - notifications_pg_data:/var/lib/postgresql/data
+
+  backend:
+    image: artemis1359/notifications_backend
+    platform: linux/amd64
+    env_file: .env
+    expose:
+     - "8000"
+    volumes:
+      - static_volume:/backend_static
+      - media_volume:/app/media
+    depends_on:
+      - db
+
+  redis:
+    image: redis:alpine
+    platform: linux/amd64
+    restart: unless-stopped
+
+  gateway:
+    image: artemis1359/nginx
+    platform: linux/amd64
+    env_file: .env
+    depends_on:
+      - backend
+    volumes:
+      - static_volume:/staticfiles/
+      - media_volume:/app/media
+    ports:
+      - "8000:80"
+  celery:
+    build: .
+    restart: always
+    command: celery --app=Notifications worker -l INFO
+    volumes:
+      - .:/app
+    env_file: .env
+    depends_on:
+      - redis
+      - backend
+      - db
+  flower:
+    build: .
+    command: celery --app=Notifications flower --port=5555 broker=redis://redis:6379/0
+    ports:
+      - "5555:5555"
+    env_file: .env
+    depends_on:
+      - redis
+      - backend
+      - celery
